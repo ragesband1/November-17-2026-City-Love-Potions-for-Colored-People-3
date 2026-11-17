@@ -1,0 +1,720 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>City Love Potions for Colored People</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: #101326;
+    color: white;
+    font-family: Arial, sans-serif;
+    overflow: hidden;
+}
+
+#gameHeader {
+    background: #191d38;
+    padding: 12px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    border-bottom: 2px solid #565b91;
+}
+
+.stat {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+#healthOuter {
+    width: 120px;
+    height: 13px;
+    background: #555;
+    border-radius: 20px;
+    overflow: hidden;
+    display: inline-block;
+}
+
+#health {
+    width: 100%;
+    height: 100%;
+    background: #ff405f;
+}
+
+#gameArea {
+    position: relative;
+    width: 100%;
+    height: calc(100vh - 115px);
+    min-height: 400px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+canvas {
+    background: #252c42;
+    width: min(100%, 1100px);
+    height: 100%;
+    object-fit: contain;
+    cursor: crosshair;
+}
+
+#message {
+    position: absolute;
+    top: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10,10,30,.92);
+    padding: 12px 20px;
+    border-radius: 10px;
+    border: 1px solid #888;
+    text-align: center;
+    pointer-events: none;
+    max-width: 90%;
+    z-index: 3;
+}
+
+#overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(5,8,25,.94);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 5;
+    padding: 15px;
+}
+
+.panel {
+    background: #202644;
+    border: 2px solid #a18bff;
+    padding: 25px;
+    border-radius: 18px;
+    text-align: center;
+    max-width: 480px;
+    width: 100%;
+}
+
+button {
+    padding: 12px 22px;
+    background: #925cff;
+    border: none;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    margin: 5px;
+}
+
+button:hover {
+    background: #bd8aff;
+}
+
+#controls {
+    font-size: 12px;
+    color: #c6c9e9;
+    text-align: center;
+    padding: 7px;
+    background: #191d38;
+}
+
+.hidden {
+    display: none !important;
+}
+</style>
+</head>
+
+<body>
+
+<header id="gameHeader">
+    <div class="stat">LEVEL: <span id="level">1</span>/100</div>
+    <div class="stat">SCORE: <span id="score">0</span></div>
+    <div class="stat">TIME: <span id="timer">90</span>s</div>
+    <div class="stat">
+        LIFE:
+        <div id="healthOuter">
+            <div id="health"></div>
+        </div>
+    </div>
+    <div class="stat">POTIONS: <span id="potions">0</span>/5</div>
+    <div class="stat">TARGETS: <span id="targets">0</span></div>
+</header>
+
+<main id="gameArea">
+
+<canvas id="game" width="1000" height="650"></canvas>
+
+<div id="message">Welcome to the city! Collect five potions.</div>
+
+<div id="overlay">
+    <div class="panel">
+        <h1>💜 CITY LOVE POTIONS</h1>
+        <h3>FOR COLORED PEOPLE</h3>
+        <p>A 2D City Adventure Game</p>
+        <p>Explore the city, collect five sense potions, avoid detectives and bombs, and meet characters who freely choose to connect.</p>
+        <p>Complete 100 challenging levels!</p>
+        <button onclick="startGame()">START GAME</button>
+        <button onclick="showHistory()">HIGH SCORES</button>
+        <p style="font-size:12px;color:#aaa">
+            Arrow Keys: Move | SHIFT: Dash | E: Interact | Mouse: Collect
+        </p>
+        <div id="history"></div>
+    </div>
+</div>
+
+</main>
+
+<div id="controls">
+    ARROWS / WASD: MOVE | SHIFT: DASH | E: INTERACT | MOUSE: COLLECT POTIONS
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const W = canvas.width;
+const H = canvas.height;
+
+let level = 1;
+let score = 0;
+let health = 100;
+let time = 90;
+let collected = 0;
+let targets = 0;
+let running = false;
+let keys = {};
+let player;
+let potions = [];
+let enemies = [];
+let bombs = [];
+let people = [];
+let buildings = [];
+let lastTime = 0;
+let lastDash = 0;
+let selectedPerson = null;
+
+const potionColors = [
+    "#ff477e",
+    "#48caff",
+    "#a86aff",
+    "#ffe04b",
+    "#54f59a"
+];
+
+const potionNames = [
+    "Sight",
+    "Hearing",
+    "Smell",
+    "Taste",
+    "Touch"
+];
+
+function message(text) {
+    document.getElementById("message").textContent = text;
+}
+
+function random(min, max) {
+    return Math.random() * (max - min) + min;
+}
+
+function startGame() {
+    document.getElementById("overlay").classList.add("hidden");
+
+    level = Math.max(1, Number(localStorage.getItem("cityLevel")) || 1);
+    score = Number(localStorage.getItem("cityScore")) || 0;
+    health = 100;
+
+    newLevel();
+    running = true;
+    lastTime = performance.now();
+
+    requestAnimationFrame(loop);
+}
+
+function newLevel() {
+    collected = 0;
+    targets = Math.min(1 + Math.floor(level / 5), 8);
+    time = Math.max(30, 100 - level * 0.6);
+
+    player = {
+        x: 500,
+        y: 320,
+        r: 17,
+        speed: 3.3
+    };
+
+    potions = [];
+    enemies = [];
+    bombs = [];
+    people = [];
+    buildings = [];
+
+    for (let i = 0; i < 5; i++) {
+        potions.push({
+            x: random(65, 935),
+            y: random(100, 590),
+            color: potionColors[i],
+            name: potionNames[i],
+            active: true
+        });
+    }
+
+    for (let i = 0; i < Math.min(2 + Math.floor(level / 4), 12); i++) {
+        enemies.push({
+            x: random(70, 930),
+            y: random(120, 580),
+            speed: random(0.8, 1.5) + level * 0.015,
+            dx: random(-1, 1),
+            dy: random(-1, 1)
+        });
+    }
+
+    for (let i = 0; i < Math.min(2 + Math.floor(level / 3), 15); i++) {
+        bombs.push({
+            x: random(70, 930),
+            y: random(120, 580),
+            radius: 13,
+            active: true
+        });
+    }
+
+    const places = [
+        "HOUSE", "HOTEL", "MOTEL",
+        "BUILDING", "CAR", "BUS"
+    ];
+
+    for (let i = 0; i < 8; i++) {
+        buildings.push({
+            x: 35 + (i % 4) * 245,
+            y: 65 + Math.floor(i / 4) * 270,
+            type: places[Math.floor(random(0, places.length))]
+        });
+    }
+
+    const preferences = [
+        "Single",
+        "Interested in friendship",
+        "Open to a relationship",
+        "Prefers monogamy",
+        "Open to consensual polyamory",
+        "Not interested"
+    ];
+
+    for (let i = 0; i < targets + 3; i++) {
+        people.push({
+            x: random(80, 920),
+            y: random(130, 580),
+            color: `hsl(${Math.random() * 360},70%,65%)`,
+            preference: preferences[Math.floor(random(0, preferences.length))],
+            consent: Math.random() > 0.35,
+            connected: false
+        });
+    }
+
+    updateUI();
+    message("Level " + level + ": Collect all five potions and meet willing characters!");
+}
+
+function updateUI() {
+    document.getElementById("level").textContent = level;
+    document.getElementById("score").textContent = score;
+    document.getElementById("timer").textContent = Math.ceil(time);
+    document.getElementById("potions").textContent = collected;
+    document.getElementById("targets").textContent =
+        people.filter(p => p.connected).length + "/" + targets;
+
+    document.getElementById("health").style.width =
+        Math.max(0, health) + "%";
+}
+
+function drawCity() {
+    ctx.fillStyle = "#252c42";
+    ctx.fillRect(0, 0, W, H);
+
+    // City roads
+    ctx.fillStyle = "#343b50";
+    ctx.fillRect(0, 270, W, 95);
+    ctx.fillRect(440, 0, 110, H);
+
+    ctx.strokeStyle = "#f7d76a";
+    ctx.setLineDash([18, 15]);
+    ctx.beginPath();
+    ctx.moveTo(0, 317);
+    ctx.lineTo(W, 317);
+    ctx.moveTo(495, 0);
+    ctx.lineTo(495, H);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Buildings
+    buildings.forEach(b => {
+        ctx.fillStyle = "#485475";
+        ctx.fillRect(b.x, b.y, 115, 85);
+
+        ctx.strokeStyle = "#9ea9ce";
+        ctx.strokeRect(b.x, b.y, 115, 85);
+
+        ctx.fillStyle = "#ffe27c";
+        ctx.font = "bold 13px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(b.type, b.x + 57, b.y + 30);
+
+        for (let j = 0; j < 3; j++) {
+            ctx.fillStyle = "#9bdafa";
+            ctx.fillRect(b.x + 12 + j * 32, b.y + 43, 20, 20);
+        }
+    });
+
+    ctx.textAlign = "left";
+}
+
+function drawPlayer() {
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.r + 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#a16cff";
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 11px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("YOU", player.x, player.y + 4);
+    ctx.textAlign = "left";
+}
+
+function drawPotions() {
+    potions.forEach(p => {
+        if (!p.active) return;
+
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = p.color;
+
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 12, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = "white";
+        ctx.font = "10px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(p.name, p.x, p.y - 19);
+    });
+    ctx.textAlign = "left";
+}
+
+function drawPeople() {
+    people.forEach(p => {
+        ctx.fillStyle = p.connected ? "#50ff9a" : p.color;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 13, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "11px Arial";
+        ctx.textAlign = "center";
+
+        ctx.fillText(
+            p.connected ? "FRIEND" : "NPC",
+            p.x,
+            p.y - 20
+        );
+    });
+    ctx.textAlign = "left";
+}
+
+function drawEnemies() {
+    enemies.forEach(e => {
+        ctx.fillStyle = "#ff465b";
+        ctx.fillRect(e.x - 13, e.y - 13, 26, 26);
+
+        ctx.fillStyle = "white";
+        ctx.font = "bold 10px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("D", e.x, e.y + 4);
+    });
+
+    ctx.textAlign = "left";
+}
+
+function drawBombs() {
+    bombs.forEach(b => {
+        if (!b.active) return;
+
+        ctx.fillStyle = "#ff8a35";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "black";
+        ctx.font = "bold 12px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("!", b.x, b.y + 4);
+    });
+    ctx.textAlign = "left";
+}
+
+function distance(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function update(dt) {
+    if (!running) return;
+
+    time -= dt / 1000;
+
+    if (time <= 0) {
+        endGame("TIME IS UP!");
+        return;
+    }
+
+    let speed = player.speed;
+
+    if (keys["Shift"] && performance.now() - lastDash > 1200) {
+        speed = 9;
+        lastDash = performance.now();
+    }
+
+    if (keys["ArrowUp"] || keys["w"]) player.y -= speed;
+    if (keys["ArrowDown"] || keys["s"]) player.y += speed;
+    if (keys["ArrowLeft"] || keys["a"]) player.x -= speed;
+    if (keys["ArrowRight"] || keys["d"]) player.x += speed;
+
+    player.x = Math.max(20, Math.min(W - 20, player.x));
+    player.y = Math.max(20, Math.min(H - 20, player.y));
+
+    // Collect potions through proximity or mouse click
+    potions.forEach(p => {
+        if (p.active && distance(player, p) < 27) {
+            p.active = false;
+            collected++;
+            score += 100;
+            message(p.name + " potion collected! +" + 100);
+        }
+    });
+
+    // Detective movement and collision
+    enemies.forEach(e => {
+        let d = distance(player, e);
+
+        let dx = player.x - e.x;
+        let dy = player.y - e.y;
+        let length = Math.hypot(dx, dy) || 1;
+
+        e.x += dx / length * e.speed * (dt / 16.67);
+        e.y += dy / length * e.speed * (dt / 16.67);
+
+        if (d < 30) {
+            health -= 0.35 * (dt / 16.67);
+        }
+    });
+
+    // Bomb collision
+    bombs.forEach(b => {
+        if (b.active && distance(player, b) < 28) {
+            b.active = false;
+            health -= 15;
+            message("💥 BOOM! You lost 15 life!");
+        }
+    });
+
+    if (health <= 0) {
+        health = 0;
+        endGame("YOU RAN OUT OF LIFE!");
+        return;
+    }
+
+    // Level completion
+    let connected = people.filter(p => p.connected).length;
+
+    if (collected >= 5 && connected >= targets) {
+        score += Math.ceil(time * 10) + 250;
+        level++;
+
+        if (level > 100) {
+            endGame("CONGRATULATIONS! YOU COMPLETED ALL 100 LEVELS!");
+            return;
+        }
+
+        health = Math.min(100, health + 15);
+        newLevel();
+    }
+
+    updateUI();
+}
+
+function draw() {
+    drawCity();
+    drawPotions();
+    drawPeople();
+    drawEnemies();
+    drawBombs();
+    drawPlayer();
+}
+
+function loop(now) {
+    if (!running) return;
+
+    const dt = Math.min(now - lastTime, 50);
+    lastTime = now;
+
+    update(dt);
+    draw();
+
+    if (running) requestAnimationFrame(loop);
+}
+
+function interact() {
+    if (!running) return;
+
+    let nearest = null;
+    let best = 55;
+
+    people.forEach(p => {
+        const d = distance(player, p);
+        if (d < best && !p.connected) {
+            best = d;
+            nearest = p;
+        }
+    });
+
+    if (!nearest) {
+        message("Move closer to a character to interact.");
+        return;
+    }
+
+    selectedPerson = nearest;
+
+    if (!nearest.consent || nearest.preference === "Not interested") {
+        message("This character declined. Respect their boundaries.");
+        return;
+    }
+
+    if (collected < 5) {
+        message("Collect all five potions before completing the level!");
+        return;
+    }
+
+    nearest.connected = true;
+    score += 200;
+
+    message("💜 A mutual connection! +200 points!");
+
+    updateUI();
+}
+
+function endGame(reason) {
+    running = false;
+
+    localStorage.setItem("cityLevel", level);
+    localStorage.setItem("cityScore", score);
+
+    let history = JSON.parse(
+        localStorage.getItem("cityHistory") || "[]"
+    );
+
+    history.push({
+        level: level,
+        score: score,
+        date: new Date().toLocaleString()
+    });
+
+    history.sort((a, b) => b.score - a.score);
+    history = history.slice(0, 10);
+
+    localStorage.setItem("cityHistory", JSON.stringify(history));
+
+    document.getElementById("overlay").classList.remove("hidden");
+
+    document.querySelector(".panel").querySelector("h1").textContent =
+        reason.includes("CONGRATULATIONS") ? "🏆 VICTORY!" : "GAME OVER";
+
+    document.querySelector(".panel").querySelector("h3").textContent = reason;
+
+    document.querySelector(".panel").querySelector("p").textContent =
+        "Final Score: " + score + " | Level: " + level;
+
+    document.getElementById("history").innerHTML = "";
+}
+
+function showHistory() {
+    let history = JSON.parse(
+        localStorage.getItem("cityHistory") || "[]"
+    );
+
+    document.getElementById("history").innerHTML =
+        "<h3>🏆 HIGH SCORES</h3>" +
+        (history.length
+            ? history.map(h =>
+                `<p>Level ${h.level} | ${h.score} points | ${h.date}</p>`
+            ).join("")
+            : "<p>No records yet.</p>");
+}
+
+document.addEventListener("keydown", e => {
+    keys[e.key] = true;
+
+    if (e.key.toLowerCase() === "e") interact();
+
+    if (e.code === "Space") {
+        e.preventDefault();
+        if (running) {
+            player.x = Math.max(20, Math.min(W - 20, player.x));
+            player.y = Math.max(20, Math.min(H - 20, player.y));
+            message("Emergency escape activated!");
+        }
+    }
+});
+
+document.addEventListener("keyup", e => {
+    keys[e.key] = false;
+});
+
+canvas.addEventListener("click", e => {
+    if (!running) return;
+
+    const rect = canvas.getBoundingClientRect();
+
+    const x = (e.clientX - rect.left) * W / rect.width;
+    const y = (e.clientY - rect.top) * H / rect.height;
+
+    // Move toward a clicked potion
+    let nearest = potions.find(p =>
+        p.active && Math.hypot(p.x - x, p.y - y) < 30
+    );
+
+    if (nearest) {
+        message("Potion selected: " + nearest.name + ". Move closer to collect!");
+    } else {
+        selectedPerson = people.find(p =>
+            Math.hypot(p.x - x, p.y - y) < 25
+        ) || null;
+
+        if (selectedPerson) {
+            message("Character: " + selectedPerson.preference +
+                ". Press E when nearby to interact.");
+        }
+    }
+});
+
+drawCity();
+drawPlayer();
+
+</script>
+</body>
+</html>
